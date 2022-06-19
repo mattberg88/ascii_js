@@ -9,7 +9,7 @@ window.onload = function() {
   app.stage.addChild(player);
   for(let i =1; i < 5; i +=1) {
     for(let k =1; k < 11; k +=1) {
-      const test = new Obj(2, width/3 + (i * Math.random() * 10), height/3 + (k * Math.random() * 10), 'test', '.', 'white', true)
+      const test = new Obj(2, width/3 + (i * Math.random() * 10), height/3 + (k * Math.random() * 10), 'test', '.', 'yellow', true)
       app.stage.addChild(test);
     }
   }
