@@ -1,5 +1,6 @@
 # ascii_js
-physics based game made with pixijs
+Physics based game made with pixijs
 
-demo dev version:
-https://ascii-js.herokuapp.com/
+To play, go into the build file and open index.html
+
+

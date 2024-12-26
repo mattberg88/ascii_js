@@ -1,11 +1,11 @@
 class Obj extends PIXI.Text {
-  constructor(id, x, y, name, char, color, rgdbdy){
+  constructor(id, x, y, name, char, color, rgdbdy, bounceFactor){
     super()
     this.id = id
     this.x = x
     this.y = y
-    this.bit_x = x/cell_size
-    this.bit_y = y/cell_size
+    this.bitX = x
+    this.bitY = y
     this.lastX=x
     this.lastY=y
     this.inertiaX=0
@@ -14,114 +14,137 @@ class Obj extends PIXI.Text {
     this._text = char
     this._style.fontFamily = 'Arial'
     this._style.fill = color
-    this._style.fontSize= 10
-    this._anchor.x = 0.5
-    this._anchor.y = 0.5
-    this.energy = 1
+    this._style.fontSize= 20
     this.rgdbdy = rgdbdy
-    this.velocityX=0
-    this.velocityY=0
-    this.speed=0
+    this.velocityX = 0
+    this.velocityY = 0
+    this.lastCollided = []
+    this.bounceFactor = bounceFactor
   }
 
+  /**
+   * @param bm existing map of screen area with ids
+   * @returns any units surrounding this unit by COLLISION_MAP_SIZE
+   */
   bitmap_to_cm(bm) {
-    let center = bm[this.bit_y][this.bit_x] || 0
-    let top = bm[this.bit_y - 1][this.bit_x] || 0
-    let bottom = bm[this.bit_y + 1][this.bit_x] || 0
-    let left = bm[this.bit_y][this.bit_x - 1] || 0
-    let right = bm[this.bit_y][this.bit_x + 1] || 0
-    let l_top = bm[this.bit_y - 1][this.bit_x - 1] || 0
-    let r_top = bm[this.bit_y - 1][this.bit_x + 1] || 0
-    let l_bottom = bm[this.bit_y + 1][this.bit_x - 1] || 0
-    let r_bottom = bm[this.bit_y + 1][this.bit_x + 1] || 0
-    return [[l_top,top,r_top], [left,center,right], [l_bottom,bottom,r_bottom]]
+    let bitArray = []
+    for(let i =0; i < COLLISION_MAP_SIZE; i+=1){
+      let bits = []
+      for(let j=0; j < COLLISION_MAP_SIZE; j+=1){
+         bits.push(bm[this.y + i - COLLISION_DIST][this.x + j - COLLISION_DIST] || 0)
+      }
+      bitArray.push(bits)
+    }
+    return bitArray
   }
 
+   /**
+   * @param cm 3x3 matrix of bits from bitmap with unit at center
+   * @returns the direction unit should bounce to according to surrounding units
+   */
   collision_to_vec(cm) {
-    let bounce = {x:0, y:0}
-    for(let i =0; i < 3; i+=1){
-      for(let j=0; j < 3; j+=1){
-        if(cm[j][i] != 0) {
-          bounce.x += i-1
-          bounce.y += j-1
+    let collide_direction = {x:0, y:0}
+    for(let i =0; i < COLLISION_MAP_SIZE; i+=1){
+      for(let j=0; j < COLLISION_MAP_SIZE; j+=1){
+        if(cm[j][i] != 0 && cm[j][i] != this.id) {
+          collide_direction.x += (i - COLLISION_DIST) * SPEED_CHART[cm[j][i]]
+          collide_direction.y += (j - COLLISION_DIST) * SPEED_CHART[cm[j][i]]
         }
       }
     }
-    return {x: bounce.x, y: bounce.y}
+    return {x: -collide_direction.x, y: -collide_direction.y}
   }
 
+
+  /**
+   * tells which way bit should move if it collides with something y[0]x[0] is the bottom right, y[2]x[2] is the top left
+   * @param col_map 3x3 matrix of bits from bitmap with unit at center
+   */
   bit_to_move(col_map) {
-    if(col_map[1][0] == 0) {
-      this.bit_x -= 1
-    } else if(col_map[1][2] == 0) {
-      this.bit_x += 1
-    } else if(col_map[0][1] == 0) {
-      this.bit_y -= 1
-    } else if(col_map[2][1] == 0) {
-      this.bit_y += 1
+    if(col_map[COLLISION_DIST + 1][COLLISION_DIST] == 0) {
+      this.bitX -= 0.1
+    } else if(col_map[COLLISION_DIST + 1][COLLISION_DIST + 2] == 0) {
+      this.bitX += 0.1
+    } else if(col_map[COLLISION_DIST][COLLISION_DIST + 1] == 0) {
+      this.bitY -= 0.1
+    } else if(col_map[COLLISION_DIST + 2][COLLISION_DIST + 1] == 0) {
+      this.bitY += 0.1
     }
   }
 
+  /**
+   * keeps units from going out of frame
+   * @param bd how many bits from border unit should stay within
+   */
   apply_threshold(bd) {
-    if(this.bit_x >= bit_width - bd) {
-      this.bit_x = bit_width - bd
-      this.inertiaX = -1
+    if(this.bitX >= WIDTH - bd) {
+      this.bitX = WIDTH - bd
+      this.inertiaX *= - 1
     }
-    if(this.bit_x <= bd) {
-      this.bit_x = bd
-      this.inertiaX = +1
+    if(this.bitX <= bd) {
+      this.bitX = bd
+      this.inertiaX *= - 1
     }
-    if(this.bit_y <= bd) {
-      this.bit_y = bd
-      this.inertiaY = +1
+    if(this.bitY <= bd) {
+      this.bitY = bd
+      this.inertiaY *= - 1
     }
-    if(this.bit_y >= bit_height - bd){
-      this.bit_y = bit_height - bd
-      this.inertiaY = -1
+    if(this.bitY >= HEIGHT - bd){
+      this.bitY = HEIGHT - bd
+      this.inertiaY *= - 1
     }
   }
 
+  /**
+   * detects collisions usint a collision map from bit map, then controls physics of unit
+   * @param bitmap a map of all the bits within frame, 0 = nothing, if not zero then the unit's id
+   */
   detect_collisions(bitmap) {
     let cm = this.bitmap_to_cm(bitmap)
-    let c_vec = this.collision_to_vec(cm)
-    let c_mag = get_magnitude(c_vec.x, c_vec.y)
+    // make function for actual collision detection
+    // console.log(cm)
+    let bounce_vector = this.collision_to_vec(cm)
+    let c_mag = get_magnitude(bounce_vector.x, bounce_vector.y)
     if(c_mag > 0) {
-      this.energy = c_mag
-      let bounce = {x: Math.floor(-c_vec.x/c_mag), y: Math.floor(-c_vec.y/c_mag)}
-      this.inertiaX += bounce.x * this.energy
-      this.inertiaY += bounce.y * this.energy
-    }
-    if(this.energy > 0) {
-      this.energy -= decay_rate
-    } else {
-      this.energy = 0
-    }
-    console.log(this.energy)
-    if(cm[2][1] == 0) {
-      // this.energy = 1
+      logBitMap(cm)
+      this.inertiaX += bounce_vector.x/c_mag * this.bounceFactor
+      this.inertiaY += bounce_vector.y/c_mag * this.bounceFactor
 
-      this.bit_y += gravity
     }
-    if(cm[1][1] != this.id) {
-      // this.energy = 1
-      this.bit_to_move(cm)
+    if(this.inertiaX > 0) this.inertiaX -= DECAY_RATE * this.inertiaX
+    if(this.inertiaX < 0) this.inertiaX += DECAY_RATE * - this.inertiaX
+    if(this.inertiaY > 0) this.inertiaY -= DECAY_RATE * this.inertiaY
+    if(this.inertiaY < 0) this.inertiaY += DECAY_RATE * - this.inertiaY
+
+
+
+
+    //if nothing is under unit
+    if(cm[COLLISION_DIST-1][COLLISION_DIST] == 0) {
+      // this.inertiaY += GRAVITY
     }
+
+    // if(cm[COLLISION_DIST][COLLISION_DIST] != this.id) {
+    //   this.bit_to_move(cm)
+    // }
   }
 
   update(bitmap) {
     if(this.rgdbdy) {
       this.detect_collisions(bitmap)
-      this.bit_x = Math.floor(this.bit_x + this.inertiaX * this.energy)
-      this.bit_y = Math.floor(this.bit_y + this.inertiaY * this.energy)
-      this.apply_threshold(3)
+      this.bitX += this.inertiaX
+      this.bitY += this.inertiaY
+      this.apply_threshold(COLLISION_MAP_SIZE/2)
     }
-    this.velocityX = this.bit_x - this.lastX
-    this.velocityY = this.bit_y - this.lastY
-    this.speed=Math.sqrt(this.velocityX**2 + this.velocityY**2)
-    this.lastX = this.bit_x
-    this.lastY = this.bit_y
-    this.x = Math.floor(this.bit_x * cell_size)
-    this.y = Math.floor(this.bit_y * cell_size)
+    this.velocityX = this.bitX - this.lastX
+    this.velocityY = this.bitY - this.lastY
+    this.speed = get_magnitude(this.velocityX, this.velocityY)
+    SPEED_CHART[this.id] = this.speed
+    // if(this.id === 1) console.log(this.speed)
+    this.lastX = this.bitX
+    this.lastY = this.bitY
+    this.x = Math.floor(this.bitX)
+    this.y = Math.floor(this.bitY)
 
   }
 }
